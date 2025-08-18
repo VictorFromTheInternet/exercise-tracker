@@ -1,7 +1,10 @@
 import express from 'express'
 const app = express()
 import cors from 'cors'
-
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 import connectDb from './config/connectDb.js'
 import UserModel from './models/user_model.js'
@@ -67,25 +70,35 @@ app.post('/api/users', async (req,res)=>{
 app.post('/api/users/:id/exercises', async (req,res)=>{
   try{
     const {description, duration, date} = req.body  
+    let formattedDate = (date)? new Date(date).toDateString() : new Date().toDateString()
+    if(formattedDate === 'Invalid Date'){
+      res.json({error: 'Invalid Date'})
+      return
+    }    
+    console.log(formattedDate)
 
     // Update by document ID
+    const newExercise = {
+      "description": description,
+      "duration": duration, 
+      "date": formattedDate,
+    }
     const updatedUser = await UserModel.findByIdAndUpdate(
       req.params.id, 
-      { $set: { 
-          "description": description,
-          "duration": duration, 
-          "date": new Date(date).toDateString(),
+      { $push: {    
+          "log": newExercise
         } 
       }, 
-      { new: true }, // Return the updated document
-      (err, updatedDoc) => {
-        if (err) {
-          console.error(err)
-        } 
-      }
-    );
+      { new: true } // Return the updated document      
+    );    
 
-    res.json(updatedUser)
+    res.json({      
+      username: updatedUser.username,
+      description: newExercise.description,
+      duration: Number.parseInt(newExercise.duration),
+      date: newExercise.date,
+      _id: updatedUser._id,
+    })
 
   }catch(err){
     console.error(err)
@@ -94,12 +107,33 @@ app.post('/api/users/:id/exercises', async (req,res)=>{
 })
 
 // get user log
-app.get('/api/users/:id/logs', (req,res)=>{
+app.get('/api/users/:id/logs', async (req,res)=>{
   try{
-    const {username} = req.body
-    console.log(username)
+    const user = await UserModel.findOne({_id: req.params.id})
+    if(!user){
+      res.json({message:"Could not find user"})
+    }
+    
+    let logs = user.log
+    const {from, to, limit} = req.query
+    if(from) {
+      const fromDate = new Date(from)
+      logs = logs.filter((elm)=> new Date(elm.date) >= fromDate)
+    }
+    if(to) {
+      const toDate = new Date(to)
+      logs = logs.filter((elm)=> new Date(elm.date) <= toDate)
+    }
+    if(limit) {
+      logs = logs.slice(0,parseInt(limit))
+    }
 
-    res.json({_id:'1234', username: username})
+    res.json({
+      "username": user.username,      
+      "count": user.log.length,
+      "log": logs,
+      "_id": user._id,      
+    })
 
   }catch(err){
     console.error(err)
